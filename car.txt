@@ -1,0 +1,127 @@
+Image for post
+They say that 2019 is the year of TypeScript. Whether it’s true or not, I think it’s a great language and it’s worth to spend more time exploring it. Here’s a list of 5 TypeScript features You might not know.
+1. "this" parameters
+Consider this example:
+class Point {
+    x: 0;
+    y: 0;
+}
+function moveRight() {
+    this.x++;
+}
+const point = new Point();
+moveRight.call(point);
+Simple — we just declare a function and execute it on thePoint object. What’s wrong with this code? We don’t have any type safety inside themoveRight function. this in themoveRight function is of typeany. With --noImplicitThis compiler flag enabled, it even throws an error. To fix it, we can use thethis parameter:
+class Point {
+    x: 0;
+    y: 0;
+}
+function moveRight(this: Point) {
+    this.x++;
+}
+const point = new Point();
+moveRight.call(point);
+This syntax might look confusing for the first time. It looks exactly like declaring function parameter, but it’s not — moveRight function still doesn’t accept any parameter. Instead, it sets explicitly function context — now this is of typePoint and we can safely access its properties.
+Ok, but what’s the real world use case for that? It’s useful especially for event-driven patterns. We don’t have to look very far. this parameter is used by one of the most basic DOM function — target.addEventListener. As the second parameter, we can pass callback for the specified event, which is executed in the context of event.target (which means that this in our callback is the element on which event was fired). This behavior is reflected in TypeScript typings using thethis parameter with this code.
+2. "ThisType”
+Note: this feature works only with compiler flag — noImplicitThis enabled
+ThisType is Utility type is very similar to thethis parameters. It enables us to explicitly set athis context, but for whole object literal instead of just single function. Let’s take a look at the example:
+interface Point {
+    x: number;
+    y: number;
+}
+const myCustomObj: ThisType<Point> = {
+    moveRight() {
+        this.x++;
+    },
+    moveLeft() {
+        this.x++;
+    }
+}
+In both moveRight and moveLeft function this is of typePoint. It’s much shorter and cleaner than using athis parameter for each function. This feature might be useful especially when working with object composition. Let’s say we have some base Point functionality and we would like to enable our API consumer to extend it with some methods, e.g.
+type BasicPoint = {
+    x: number;
+    y: number;
+moveRight: () => void;
+}
+function makeCustomPoint(methods: ThisType<BasicPoint>) {
+    return { x: 0, y: 0, ...methods };
+}
+const customPoint = makeCustomPoint({
+    moveRightBy: function (xTranslate: number) {
+        // "this.x" is a number 
+        this.x += xTranslate;
+    }
+});
+For more inquisitive readers — take a look at aThisType definition:
+interface ThisType<T> { }
+You probably wonder: how does it even work?! I scratched my head a little bit, but I finally found an answer: ThisType is specially handled by the compiler. What I mean by that — if You would create the same interface but with a different name, it won’t work. There’s a hardcoded name of this interface in TypeScript checker:
+globalThisType =
+    <GenericType>getGlobalTypeOrUndefined(
+        "ThisType" as __String, /*arity*/ 1
+    );
+During type checking, a function called getThisTypeFromContextualType, checks if object literal is marked with globalThisType and if it is — it binds specified type to object literal function members.
+3. Infer keyword
+The third feature I would like to show is strongly related to conditional types. You can use theinfer keyword within the extends clause to introduce type variable to be inferred. In practice, we usually use it to extract return type or arguments type from function type. Let’s take a look at predefined utility type:
+type ReturnType<T extends (...args: any[]) => any> =
+     T extends (...args: any[]) => infer R ? R : any;
+ReturnType generic takes some function type as argument and returns a return type of this function. In simplest use case it looks like this:
+type MyFunction = () => number;
+type MyType = ReturnType<MyFunction>
+// MyType is of type number
+For more examples, take a look at other Utility types, like Parameters, ConstructorParameters, or InstanceType here.
+4. User-defined type guards
+When working with type unions (e.g. string | number), we sometimes have to be sure what type we deal with actually. For this purpose, we use well-known type guards. Let’s take a look at the example.
+function format(value: string | number) {
+    if (typeof value === 'string') {
+        // we know it's string - we can access safely string methods
+        return value.toLowerCase();
+    }
+    // it's number
+    return value.toFixed(2);
+}
+For this purpose, we can use also instanceOf and in operators. But there’s another option - we can create our custom type guards!
+interface Car {
+    name: string;
+    engine: string;
+}
+interface Bicycle {
+    name: string;
+    breakSystem: string;
+}
+function isCar(vehicle: Car | Bicycle): vehicle is Car {
+    return (<Car>vehicle).engine !== undefined;
+}
+function showVehicle(vehicle: Car | Bicycle) {
+    if (isCar(vehicle)) {
+        // we can access car properties
+        vehicle.engine;
+    } else {
+        // we know it's bicycle
+        vehicle.breakSystem;
+    }
+}
+Here, a function isCar is our type guard. Instead of defining return type of this function, we define this weird thing — vehicle is Car. It means that — if a function returns true, we can be sure that vehicle is of typeCar.
+5. "never” type
+never is one of the basic types. It represents the type of values that never occur. It might be the return type of function that never returns:
+// both reportError and loop type is of type “() => never”.
+const reportError = function () {
+    throw Error('my error');
+}
+const loop = function () {
+    while(true) {}
+}
+Variable can be inferred to type never also if we narrow it with type guards to the value that can’t exist:
+function format(value: string | number) {
+    if (typeof value === 'string') {
+        return value.trim(); // we're sure it's string
+    } else if (typeof value === 'number') {
+        return value.toFixed(2); // we're sure it's number
+    }
+    // not a string or number
+    // "value" can't occur here, so it's type "never"
+}
+Except for better type safety (as in cases described above), never type has another use case — conditional types. With this feature we can exclude some undesired types:
+type NonNullable<T> = T extends null | undefined ? never : T;
+type A = NonNullable<boolean>;            // boolean
+type B = NonNullable<number | null>;      // number
